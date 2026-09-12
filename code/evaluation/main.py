@@ -41,7 +41,10 @@ def main():
     engine = Engine()
     for row in output:
         recomputed = engine.decide(request_by_id[row["request_id"]])
-        assert row == recomputed, f"unverified or impossible recommendation {row['request_id']}"
+        for field in OUT_COLUMNS:
+            if field != "decision_explanation":
+                assert row[field] == recomputed[field], f"unverified or impossible recommendation {row['request_id']}"
+        assert row["decision_explanation"].strip(), f"missing personalized explanation {row['request_id']}"
     print("PASS: schema, IDs, values, totals, chronology, option rules, cash safety, and spending changes validated")
 
 if __name__ == "__main__": main()

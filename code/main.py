@@ -68,6 +68,10 @@ class Engine:
             self.options[r["request_id"]].append(r)
         self.rates = {(r["rate_date"], r["from_currency"], r["to_currency"]): D(r["rate"])
                       for r in rows("exchange_rates.csv")}
+        # Untrusted supporting evidence is retained for the semantic agent layer.
+        # It never changes cash-flow arithmetic or challenge constraints.
+        self.messages = rows("messages.csv")
+        self.images = rows("images.csv")
 
     def amount_home(self, event, home):
         amount = event["amount_d"]
@@ -301,13 +305,24 @@ def validate(output, requests):
 
 
 def main():
+    from agent_layer import FinancialAgent
     engine = Engine()
+    agent = FinancialAgent(engine)
     requests = rows("requests.csv")
-    output = [engine.decide(r) for r in requests]
+    output = []
+    for request in requests:
+        decision = engine.decide(request)
+        facts = agent.facts_for(request)
+        # The agent can personalize prose only. All constrained fields remain
+        # the decision engine's exact output.
+        decision["decision_explanation"] = agent.personalized_explanation(request, decision, facts)
+        output.append(decision)
     validate(output, requests)
     with (ROOT / "output.csv").open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=OUT_COLUMNS); writer.writeheader(); writer.writerows(output)
     print(f"Wrote {len(output)} validated predictions to {ROOT / 'output.csv'}")
+    usage = agent.usage()
+    print(f"Semantic agent: provider={usage.provider}, model={usage.model}, calls={usage.calls}, fallback={usage.fallback_requests}")
 
 
 if __name__ == "__main__":
