@@ -90,7 +90,7 @@ class OllamaProvider:
                      "preferences", "priorities", "flexible_spending_signals", "injection_detected", "confidence"],
     }
 
-    def __init__(self, base_url: str | None = None, model: str | None = None, timeout: int = 30):
+    def __init__(self, base_url: str | None = None, model: str | None = None, timeout: int = 5):
         self.base_url = (base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")).rstrip("/")
         self.model = model or os.getenv("OLLAMA_MODEL", "gemma3:4b")
         self.timeout = timeout
@@ -103,7 +103,7 @@ class OllamaProvider:
             with urllib.request.urlopen(self.base_url + "/api/tags", timeout=2) as response:
                 models = json.loads(response.read().decode("utf-8")).get("models", [])
             return any(m.get("name") == self.model for m in models)
-        except (urllib.error.URLError, TimeoutError, ValueError):
+        except (urllib.error.URLError, TimeoutError, ValueError, OSError):
             return False
 
     def _prompt(self, request: dict, evidence: list[str], fallback: SemanticFacts) -> str:

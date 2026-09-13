@@ -1,193 +1,325 @@
-# HackerRank Orchestrate
+ # Buy or Wait? — AI Financial Decision Agent
 
-Starter repository for the **HackerRank Orchestrate** 24-hour hackathon (September 2026).
+An AI-assisted financial decision agent built for the **HackerRank Orchestrate September 2026** challenge **“Buy or Wait?”**
 
-## Buy or Wait?
+The system analyzes a user's financial position and purchase request to determine whether they should pay now, use an available payment plan, make a partial payment, wait until a safer date, or avoid the purchase.
 
-Build an AI-powered financial agent that decides whether a user can safely afford a requested expense.
+## Problem
 
-A user may ask: **"Can I afford this laptop?"**
+A purchase that looks affordable from the current bank balance may not remain affordable after considering:
 
-Answering well takes more than the current balance. The agent must account for recurring expenses, pending payments, essential spending, confirmed income, available payment options, and relevant details buried in messages and images.
+* Upcoming essential expenses
+* Recurring income and expenses
+* Pending and scheduled transactions
+* Minimum balance requirements
+* User payment preferences
+* Installment options
+* Partial-payment eligibility
+* Flexible spending that the user is willing to reduce or stop
+* Financial information contained in messages and images
 
-For every request, the agent decides whether the user should pay in full, pay partially, use installments, wait, or not proceed. The recommendation must be personalized: two users with the same balance can deserve different answers based on their commitments, priorities, payment preferences, and willingness to adjust flexible expenses.
+The goal is therefore not simply to check the current balance, but to determine whether the requested payment remains financially safe over a **90-day forecast**.
 
-A recommendation is safe only if the user can complete the full payment plan, cover essential expenses, and stay above their preferred minimum balance throughout the forecast period.
+## Solution Overview
 
-Read [`problem_statement.md`](./problem_statement.md) for the full task spec, input/output schema, allowed values, conflict-resolution rules, and submission format.
-
----
-
-## Quick Start
-
-Clone the repository and move into the project directory:
-
-```bash
-git clone https://github.com/interviewstreet/hackerrank-orchestrate-september26.git
-cd hackerrank-orchestrate-september26
-```
-
-Build your solution in `code/main.py`, or use another language and document its entry point clearly.
-
-Your solution must:
-
-- Read the input files from `dataset/`
-- Generate one prediction for every request
-- Write the final predictions to `output.csv` in the repository root
-
-Run the starter Python entry point with:
-
-```bash
-python3 code/main.py
-```
-
-After running your solution, confirm that `output.csv` exists in the repository root and contains the required columns and one row for every request.
-
-## Important File Locations
+The solution uses a hybrid architecture:
 
 ```text
-dataset/        Input data and the blank output template. Do not modify the input data.
-code/           Your solution code.
-output.csv      Final generated predictions in the repository root.
-code.zip        ZIP file containing your complete solution for submission.
+User Request
+     ↓
+Evidence Layer
+(messages, images, profiles, events)
+     ↓
+Trust Boundary
+     ↓
+AI Semantic Agent
+     ↓
+Structured Semantic Facts
+     ↓
+Deterministic Financial Engine
+     ↓
+Independent Validator
+     ↓
+output.csv
 ```
 
-The blank template at `dataset/output.csv` is provided as a reference. Your final generated file must be the root-level `output.csv`.
+### Core Design Principle
 
----
+> **AI interprets messy evidence; deterministic code makes the financial decision.**
 
-## Repository Layout
+The AI layer is intentionally not responsible for financial calculations. This prevents an AI-generated response from directly changing the affordability decision or payment plan.
+
+## AI Semantic Agent
+
+`code/agent_layer.py` provides the semantic-agent boundary.
+
+It is responsible for interpreting information such as:
+
+* Natural-language purchase/request intent
+* Mentioned amounts
+* Payment preferences
+* User priorities
+* Commitment-related terms
+* Relevant messages
+* Linked image evidence
+* Instruction-like or prompt-injection text
+
+The semantic layer produces structured `SemanticFacts` that can be used by the financial engine.
+
+### Trust Boundary
+
+Messages and images are treated as **untrusted evidence**, not instructions.
+
+Instruction-like text such as attempts to override system or challenge rules is detected and ignored rather than being executed.
+
+The semantic agent cannot directly modify:
+
+* `amount_safe_to_pay`
+* Affordability status
+* Recommended payment method
+* Payment plan
+* Earliest safe payment date
+* Spending changes
+
+## Deterministic Financial Decision Engine
+
+The financial engine in `code/main.py` is the authority for financial decisions.
+
+It considers:
+
+* Current available balance
+* Minimum balance to maintain
+* Historical and scheduled financial events
+* Recurring income and expenses
+* Confirmed future transactions
+* Fixed exchange-rate data
+* User financial priorities
+* Protected spending categories
+* Flexible spending categories
+* Payment preferences
+* Available installment options
+* Partial-payment rules
+* Desired completion date
+
+The engine performs a **90-day cash-flow safety simulation** and ensures that the projected balance does not fall below the user's required minimum.
+
+## Decision Options
+
+For each request, the system can recommend:
+
+### Full Payment
+
+Pay the complete requested amount immediately when the 90-day forecast remains safe.
+
+### Partial Payment
+
+Make a safe payment today and pay the remaining amount on the earliest safe date when the request and user preferences allow partial payment.
+
+### Installments
+
+Use an eligible payment option when it satisfies the user's preferences, maximum installment limit, total cost, and completion deadline.
+
+### Wait
+
+Delay the purchase until the earliest date on which paying the full amount becomes financially safe.
+
+### Not Recommended
+
+If no valid option can complete the request safely within the required conditions, the system recommends not proceeding.
+
+## Spending Changes
+
+The system can consider permitted changes to flexible recurring spending.
+
+Examples include:
+
+```text
+stop:<event_id>
+reduce_to:<event_id>:<new_amount>
+```
+
+Only eligible flexible spending can be changed. Protected or essential spending is not modified.
+
+The system ranks plans according to the challenge requirements, including preference for plans that avoid spending changes.
+
+## Payment Plan Ranking
+
+Candidate plans are ranked using the challenge's decision priorities:
+
+1. Complete the request by the required deadline
+2. Avoid spending changes
+3. Minimize total amount paid
+4. Start payment earlier
+5. Use fewer payments
+6. Use the lowest payment option ID as the final tie-breaker
+
+## Output
+
+The final predictions are written to:
+
+```text
+output.csv
+```
+
+The output contains exactly:
+
+```text
+request_id
+amount_safe_to_pay
+affordability_status
+recommended_payment_method
+payment_plan
+earliest_date_for_full_payment
+spending_changes_needed
+decision_explanation
+```
+
+The system generates one prediction for every request in:
+
+```text
+dataset/requests.csv
+```
+
+## Validation
+
+An independent validator is included at:
+
+```text
+code/evaluation/main.py
+```
+
+It verifies:
+
+* Output schema and column order
+* Correct number of requests
+* Request IDs
+* Safe payment amount bounds
+* Payment-plan chronology
+* Payment totals
+* Partial-payment rules
+* Installment eligibility
+* Spending-change rules
+* Minimum-balance safety
+* Deterministic recomputation of recommendations
+* Presence of a personalized explanation
+
+The current full-dataset output has been validated successfully:
+
+```text
+PASS: schema, IDs, values, totals, chronology, option rules, cash safety, and spending changes validated
+```
+
+## Running the Project
+
+Run these commands from the repository root.
+
+### Generate the output
+
+```powershell
+python code/main.py
+```
+
+### Run the independent validator
+
+```powershell
+python code/evaluation/main.py
+```
+
+### Run the tests
+
+```powershell
+python -m unittest discover -s code/tests -v
+```
+
+## Optional Local AI Provider
+
+The semantic layer supports a local **Ollama** provider.
+
+The default model is:
+
+```text
+gemma3:4b
+```
+
+If Ollama is available:
+
+```powershell
+ollama serve
+```
+
+and verify the installed model:
+
+```powershell
+ollama list
+```
+
+The provider can be configured using:
+
+```text
+OLLAMA_BASE_URL
+OLLAMA_MODEL
+BUY_OR_WAIT_LLM_PROVIDER
+```
+
+The deterministic fallback is also supported when no local model is available.
+
+The financial engine does not depend on an external cloud API or live financial/market data.
+
+## Safety Approach
+
+The system follows a strict separation between **semantic interpretation** and **financial computation**.
+
+```text
+Untrusted Evidence
+       ↓
+AI interprets evidence
+       ↓
+Structured facts
+       ↓
+Deterministic financial calculations
+       ↓
+Validated recommendation
+```
+
+This design means an instruction hidden inside a message or image cannot directly override financial constraints.
+
+The system also avoids treating unsupported future income as available cash and protects the user's minimum balance throughout the forecast.
+
+## Project Structure
 
 ```text
 .
-├── AGENTS.md                         # Rules for AI coding tools + transcript logging
-├── problem_statement.md              # Full challenge statement
-├── README.md                         # You are here
-├── code/                             # Your solution code
-├── output.csv                        # Final generated predictions
-└── dataset/
-    ├── requests.csv                  # 250 requests to evaluate — predict these
-    ├── output.csv                    # Blank submission template
-    ├── sample_requests.csv           # 25 solved examples
-    ├── financial_profiles.csv        # Balances, minimum balance, priorities, preferences
-    ├── financial_events.csv          # Historical, pending, and confirmed transactions
-    ├── request_payment_options.csv   # Payment options available per request
-    ├── exchange_rates.csv            # Fixed, dated conversion rates
-    ├── messages.csv                  # Messages tied to users, requests, or events
-    ├── images.csv                    # Payroll letters, statements, bills, receipts
-    └── media/
-        └── images/
+├── README.md
+├── problem_statement.md
+├── dataset/
+│   ├── exchange_rates.csv
+│   ├── financial_events.csv
+│   ├── financial_profiles.csv
+│   ├── images.csv
+│   ├── messages.csv
+│   ├── requests.csv
+│   ├── request_payment_options.csv
+│   └── media/
+│       └── images/
+├── code/
+│   ├── main.py
+│   ├── agent_layer.py
+│   ├── llm_demo.py
+│   ├── README.md
+│   ├── evaluation/
+│   │   ├── main.py
+│   │   ├── usage_report.md
+│   │   └── llm_demo_report.md
+│   └── tests/
+│       └── test_engine.py
+└── output.csv
 ```
 
-Only `dataset/requests.csv` requires predictions. Everything else is context. Join user records with `user_id`, request records with `request_id`, supporting evidence with `related_event_id`, and exchange rates with the rate date and currency pair.
+## Key Idea
 
-Amounts are in the user's `home_currency` — the dataset uses INR, ZAR, IDR, USD, and EUR, and every conversion rate you need is in `exchange_rates.csv`. All dates are `YYYY-MM-DD`. Live exchange rates, market data, and banking access are not required.
+The project combines the flexibility of an AI semantic layer with the reliability of deterministic financial rules.
 
----
+**AI handles interpretation.
+The financial engine handles decisions.
+The validator checks the result.**
 
-## What You Need to Build
-
-For every row in `dataset/requests.csv`, produce one row in `output.csv` with:
-
-| Column | Meaning |
-|---|---|
-| `request_id` | The request being answered |
-| `amount_safe_to_pay` | Largest amount safe to pay on `request_date` before optional spending changes, after protecting essentials and the minimum balance |
-| `affordability_status` | `affordable_now`, `affordable_with_plan`, `affordable_later`, or `not_affordable` |
-| `recommended_payment_method` | `full_payment`, `partial_payment`, `installments`, `wait`, or `not_recommended` |
-| `payment_plan` | Chronological `<YYYY-MM-DD>:<amount>` entries joined by `\|`, or `none` |
-| `earliest_date_for_full_payment` | Earliest date the full amount is forecast safe as one payment; empty if never within the forecast |
-| `spending_changes_needed` | Up to three `stop:<event_id>` / `reduce_to:<event_id>:<amount>` changes joined by `\|`, or `none` |
-| `decision_explanation` | Short explanation and the financial facts behind it |
-
-`0 <= amount_safe_to_pay <= requested_amount` must always hold. Installment plans must exactly match a supplied payment option, and only recurring expenses marked flexible may be changed.
-
-`affordable_with_plan` means the full request is completed through a partial-payment schedule, installments, or permitted spending changes. Recommend `partial_payment` only when the request allows it, the user accepts it, `0 < amount_safe_to_pay < requested_amount`, and `earliest_date_for_full_payment` is on or before `desired_completion_date`. Use exactly two payments: pay `amount_safe_to_pay` on `request_date`, then pay the remaining amount on `earliest_date_for_full_payment`. The two payments must add up to `requested_amount`. Unlike installments, partial payment does not need to match a supplied payment option.
-
----
-
-## Suggested Workflow
-
-1. Inspect `dataset/sample_requests.csv` — 25 requests with completed output columns — to understand the expected format and decision style.
-2. Reconstruct each user's financial state from `financial_profiles.csv` and `financial_events.csv`: separate recurring expenses from one-time events, reserve pending transactions, count confirmed salary only on its settlement date, and de-duplicate repeated representations of the same event.
-3. When an event has a blank `amount`, find its `event_id` as `related_event_id` in `images.csv` and extract the amount from the linked image. Never treat a blank amount as zero. Pull in any other relevant messages, images, and payment options for the request.
-4. Forecast forward and generate a plan that keeps the balance above the minimum at every step.
-5. Verify deterministically — bounds, plan feasibility, schedule match, flexible-only spending changes — before writing `output.csv`.
-6. Score yourself on the solved samples, then run the full dataset.
-
-You may use any language or runtime. Python, JavaScript, and TypeScript are all reasonable choices.
-
----
-
-## Requirements
-
-Your solution must:
-
-- be runnable from the terminal
-- read the provided files from `dataset/`
-- produce a valid `output.csv` with the exact required columns in the exact required order
-- include one prediction for every `request_id` in `dataset/requests.csv`
-- not use organizer-only files or hardcoded labels
-- keep behavior deterministic where possible
-
-If you use API keys or secrets, read them from environment variables. Never hardcode secrets in the repo.
-
----
-
-## Evaluation
-
-Your `output.csv` will be compared against hidden ground-truth values.
-
-The scoring will consider:
-
-- accuracy of `amount_safe_to_pay`
-- correctness of `affordability_status`
-- correctness of `recommended_payment_method` and `payment_plan`
-- accuracy of `earliest_date_for_full_payment`
-- validity of `spending_changes_needed`
-- usefulness and consistency of `decision_explanation`
-
-### Token Usage And Cost Analysis
-
-Your `code.zip` must include one token-usage file:
-
-```text
-evaluation/usage_report.md
-```
-
-The report must cover model providers and names, model calls, input and output tokens, total and average tokens per request, estimated total and per-request cost. The reported values must correspond to the final full-dataset run that produced your `output.csv`.
-
----
-
-## Chat Transcript Logging
-
-This repo includes an [`AGENTS.md`](./AGENTS.md) file for AI coding tools. It asks compatible tools to append conversation summaries to a `log.txt` in the repository root — the same directory as `AGENTS.md`:
-
-| Platform | Path |
-|---|---|
-| macOS / Linux | `<repo root>/log.txt` |
-| Windows | `<repo root>\log.txt` |
-
-The path resolves relative to `AGENTS.md`, so it stays correct across clones, renames, and checkouts. `log.txt` is gitignored — upload it as your chat transcript at submission time. Do not paste secrets into the chat.
-
-In case, the harness you are using is not in the repo root, you can explicitly ask the agent to look for the AGENTS.md in this folder & then continue.
-
----
-
-## Submission
-
-Submit the following files as instructed by HackerRank:
-
-| File | Description |
-|---|---|
-| `code.zip` | Full runnable solution, prompts/configuration, README, and the required `evaluation/` folder |
-| `output.csv` | Predictions for every row in `dataset/requests.csv` |
-| `chat_transcript` | The `log.txt` described above, showing how you developed or used the system |
-
-Before submitting, confirm:
-
-- `output.csv` has one row per row in `dataset/requests.csv` (250 rows plus the header).
-- `output.csv` has the exact required columns in the exact required order.
-- Every `amount_safe_to_pay` satisfies `0 <= amount_safe_to_pay <= requested_amount`.
-- Every installment plan matches a supplied payment option, and every spending change targets a flexible recurring expense.
-- Your runnable code, setup instructions, and `evaluation/` folder are included in `code.zip`.

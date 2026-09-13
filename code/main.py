@@ -245,41 +245,184 @@ class Engine:
         return "This request cannot be completed safely within the 90-day forecast while protecting essential commitments and the minimum balance."
 
     def decide(self, request):
-        user = request["user_id"]; start = dt(request["request_date"]); deadline = dt(request["desired_completion_date"])
-        requested = D(request["requested_amount"]); profile = self.profiles[user]
-        methods = set(filter(None, profile["payment_methods_user_will_consider"].split("|")))
-        safe = self.safe_today(user, request); earliest = self.earliest_full(user, request)
-        full_ok, _, _, _ = self.simulate(user, start, [(start, requested)])
-        if full_ok and "full_payment" in methods:
-            return self.row(request, safe, "affordable_now", "full_payment", [(start, requested)], start, ())
-        # Full payment with the smallest permitted changes is preferable to a dearer plan.
+        user = request["user_id"]
+        start = dt(request["request_date"])
+        deadline = dt(request["desired_completion_date"])
+        requested = D(request["requested_amount"])
+        profile = self.profiles[user]
+
+        methods = set(
+            filter(None, profile["payment_methods_user_will_consider"].split("|"))
+        )
+
+        safe = self.safe_today(user, request)
+        earliest = self.earliest_full(user, request)
+
+        candidates = []
+
+        # 1. Full payment today without spending changes
+        if "full_payment" in methods:
+            full_ok, _, _, _ = self.simulate(
+                user, start, [(start, requested)]
+            )
+
+            if full_ok and start <= deadline:
+                candidates.append({
+                    "status": "affordable_now",
+                    "method": "full_payment",
+                    "plan": [(start, requested)],
+                    "changes": (),
+                    "total": requested,
+                    "start": start,
+                    "payments": 1,
+                    "option_id": ""
+                })
+
+        # 2. Full payment with permitted spending changes
         if "full_payment" in methods:
             for changes in self.change_candidates(user, request):
-                ok, _, _, _ = self.simulate(user, start, [(start, requested)], changes)
-                if ok:
-                    return self.row(request, safe, "affordable_with_plan", "full_payment", [(start, requested)], earliest, changes)
-        candidates = []
+                ok, _, _, _ = self.simulate(
+                    user, start, [(start, requested)], changes
+                )
+
+                if ok and start <= deadline:
+                    candidates.append({
+                        "status": "affordable_with_plan",
+                        "method": "full_payment",
+                        "plan": [(start, requested)],
+                        "changes": changes,
+                        "total": requested,
+                        "start": start,
+                        "payments": 1,
+                        "option_id": ""
+                    })
+
+        # 3. Installment plans
         if "installments" in methods:
             limit = profile["max_installment_months"]
+
             for opt, plan in self.installments(request):
                 if limit and int(opt["number_of_payments"]) > int(limit):
                     continue
-                ok, _, _, _ = self.simulate(user, start, plan)
-                if ok:
-                    candidates.append((D(opt["total_payable_amount"]), len(plan), opt["payment_option_id"], plan))
-            if candidates:
-                _, _, _, plan = sorted(candidates)[0]
-                return self.row(request, safe, "affordable_with_plan", "installments", plan, earliest, ())
-        if (request["allows_partial_payment"].lower() == "true" and "partial_payment" in methods
-                and D(0) < safe < requested and earliest and earliest <= deadline):
-            plan = [(start, safe), (earliest, requested - safe)]
-            ok, _, _, _ = self.simulate(user, start, plan)
-            if ok:
-                return self.row(request, safe, "affordable_with_plan", "partial_payment", plan, earliest, ())
-        if earliest and "full_payment" in methods:
-            return self.row(request, safe, "affordable_later", "wait", [(earliest, requested)], earliest, ())
-        return self.row(request, safe, "not_affordable", "not_recommended", (), None, ())
 
+                if not plan:
+                    continue
+
+                completion = plan[-1][0]
+
+                # Must finish by desired completion date
+                if completion > deadline:
+                    continue
+
+                ok, _, _, _ = self.simulate(user, start, plan)
+
+                if ok:
+                    candidates.append({
+                        "status": "affordable_with_plan",
+                        "method": "installments",
+                        "plan": plan,
+                        "changes": (),
+                        "total": D(opt["total_payable_amount"]),
+                        "start": plan[0][0],
+                        "payments": len(plan),
+                        "option_id": str(opt["payment_option_id"])
+                    })
+
+        # 4. Partial payment
+        if (
+            request["allows_partial_payment"].lower() == "true"
+            and "partial_payment" in methods
+            and D(0) < safe < requested
+            and earliest
+            and earliest <= deadline
+        ):
+            plan = [
+                (start, safe),
+                (earliest, requested - safe)
+            ]
+
+            ok, _, _, _ = self.simulate(user, start, plan)
+
+            if ok:
+                candidates.append({
+                    "status": "affordable_with_plan",
+                    "method": "partial_payment",
+                    "plan": plan,
+                    "changes": (),
+                    "total": requested,
+                    "start": start,
+                    "payments": 2,
+                    "option_id": ""
+                })
+
+        # 5. Wait and pay in full later
+        if (
+            earliest
+            and earliest <= deadline
+            and "full_payment" in methods
+        ):
+            candidates.append({
+                "status": "affordable_later",
+                "method": "wait",
+                "plan": [(earliest, requested)],
+                "changes": (),
+                "total": requested,
+                "start": earliest,
+                "payments": 1,
+                "option_id": ""
+            })
+
+        # No safe plan within the required deadline
+        if not candidates:
+            return self.row(
+                request,
+                safe,
+                "not_affordable",
+                "not_recommended",
+                (),
+                earliest,
+                ()
+            )
+
+        # PS ranking:
+        # 1. Complete by deadline       -> already filtered
+        # 2. No spending changes
+        # 3. Minimize total amount paid
+        # 4. Start payment earlier
+        # 5. Fewer payments
+        # 6. Lowest payment_option_id
+
+        def candidate_key(c):
+            no_changes = 0 if not c["changes"] else 1
+
+            option_id = c["option_id"]
+
+            # Non-installment plans have no payment_option_id.
+            # Keep them deterministic after real option IDs.
+            if option_id == "":
+                option_rank = "999999999999"
+            else:
+                option_rank = option_id
+
+            return (
+                no_changes,
+                c["total"],
+                c["start"],
+                c["payments"],
+                option_rank
+            )
+
+        best = sorted(candidates, key=candidate_key)[0]
+
+        return self.row(
+            request,
+            safe,
+            best["status"],
+            best["method"],
+            best["plan"],
+            earliest,
+            best["changes"]
+        )
     def row(self, request, safe, status, method, plan, earliest, changes):
         change_text = "none" if not changes else "|".join(
             f"stop:{event}" if kind == "stop" else f"reduce_to:{event}:{money(amount)}"
