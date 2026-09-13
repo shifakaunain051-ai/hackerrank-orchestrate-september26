@@ -304,6 +304,25 @@ def validate(output, requests):
             assert dates == sorted(dates)
 
 
+def write_usage_report(usage, request_count):
+    """Write only measured provider telemetry; Ollama local inference costs $0."""
+    input_tokens = usage.input_tokens if usage.input_tokens is not None else "unavailable"
+    output_tokens = usage.output_tokens if usage.output_tokens is not None else "unavailable"
+    total = (usage.input_tokens or 0) + (usage.output_tokens or 0)
+    average = f"{total / request_count:.2f}" if isinstance(input_tokens, int) and isinstance(output_tokens, int) else "unavailable"
+    text = f"""# Usage report
+
+Final full-dataset run: constrained local semantic extraction plus deterministic financial engine.
+
+| Provider | Model | Calls | Input tokens | Output tokens | Total tokens | Estimated cost |
+|---|---|---:|---:|---:|---:|---:|
+| {usage.provider} | {usage.model} | {usage.calls} | {input_tokens} | {output_tokens} | {total if isinstance(input_tokens, int) and isinstance(output_tokens, int) else 'unavailable'} | $0.00 |
+
+Fallback requests: {usage.fallback_requests}. Ollama token counters are used only when returned by the local API; no values are estimated. Average total model tokens per request: {average}. The model only supplies semantic facts and cannot alter deterministic financial calculations, plans, or validation.
+"""
+    (ROOT / "code" / "evaluation" / "usage_report.md").write_text(text, encoding="utf-8")
+
+
 def main():
     from agent_layer import FinancialAgent
     engine = Engine()
@@ -322,6 +341,7 @@ def main():
         writer = csv.DictWriter(f, fieldnames=OUT_COLUMNS); writer.writeheader(); writer.writerows(output)
     print(f"Wrote {len(output)} validated predictions to {ROOT / 'output.csv'}")
     usage = agent.usage()
+    write_usage_report(usage, len(requests))
     print(f"Semantic agent: provider={usage.provider}, model={usage.model}, calls={usage.calls}, fallback={usage.fallback_requests}")
 
 

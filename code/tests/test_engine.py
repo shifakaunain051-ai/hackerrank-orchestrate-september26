@@ -1,12 +1,13 @@
 import sys
 import unittest
+import json
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from main import D, Engine, IMAGE_AMOUNTS, money
-from agent_layer import FinancialAgent
+from agent_layer import FinancialAgent, OllamaProvider, UnavailableProvider
 
 
 class FinancialEngineTests(unittest.TestCase):
@@ -62,7 +63,7 @@ class FinancialAgentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.engine = Engine()
-        cls.agent = FinancialAgent(cls.engine)
+        cls.agent = FinancialAgent(cls.engine, UnavailableProvider())
 
     def request(self, number):
         import csv
@@ -97,6 +98,37 @@ class FinancialAgentTests(unittest.TestCase):
         usage = self.agent.usage()
         self.assertEqual(usage.calls, 0)
         self.assertGreaterEqual(usage.fallback_requests, 1)
+
+    def test_ollama_provider_valid_json_extraction(self):
+        request = self.request(2)
+        fallback = self.agent.fallback_extract(request, [], ())
+        provider = OllamaProvider(base_url='http://test.invalid', model='gemma3:4b')
+        response = {"response": json.dumps({"item": "trip", "amount": 46018000, "currency": "IDR",
+                   "relevant_message_ids": [], "relevant_image_ids": [], "preferences": ["installments"],
+                   "priorities": [], "flexible_spending_signals": [], "injection_detected": False, "confidence": 0.9}),
+                   "prompt_eval_count": 12, "eval_count": 8}
+        class Reply:
+            def read(self): return json.dumps(response).encode('utf-8')
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+        from unittest.mock import patch
+        with patch('agent_layer.urllib.request.urlopen', return_value=Reply()):
+            facts = provider.extract(request, [], (), fallback)
+        self.assertEqual(facts.source, 'ollama')
+        self.assertEqual(facts.item, 'trip')
+        self.assertEqual(provider.calls, 1)
+        self.assertEqual(provider.prompt_tokens, 12)
+
+    def test_malformed_ollama_output_and_unavailable_provider_fall_back(self):
+        request = self.request(1)
+        class BrokenProvider:
+            name = 'Ollama'; model = 'gemma3:4b'
+            def available(self): return True
+            def extract(self, request, evidence, image_paths, fallback): return None
+        broken = FinancialAgent(self.engine, BrokenProvider())
+        self.assertEqual(broken.facts_for(request).source, 'deterministic_fallback')
+        unavailable = FinancialAgent(self.engine, UnavailableProvider())
+        self.assertEqual(unavailable.facts_for(request).source, 'deterministic_fallback')
 
 
 if __name__ == '__main__':

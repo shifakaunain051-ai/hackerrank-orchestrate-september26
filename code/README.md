@@ -29,14 +29,22 @@ such as “ignore previous rules” as an injection signal and never executes it
 lets it override financial/challenge rules. Image-backed financial amounts remain
 the reviewed `IMAGE_AMOUNTS` evidence mapping in the deterministic engine.
 
-## Provider and fallback
+## Ollama provider and fallback
 
-The project includes a provider protocol and environment-only configuration
-boundary (`BUY_OR_WAIT_LLM_PROVIDER`, `BUY_OR_WAIT_LLM_API_KEY`); no key is
-hard-coded. This submission has no reviewed configured provider client, so it
-uses a deterministic semantic fallback safely for every request. It never
-fabricates LLM facts or usage. A future reviewed provider implementation may
-implement `SemanticProvider`, but its output must remain prose/evidence-only and
-cannot change the engine's validated financial fields.
+The runtime provider is local Ollama, using `gemma3:4b` by default. Start it in
+another terminal with `ollama serve` (if it is not already running) and ensure
+the model is present with `ollama list`. No API key, cloud model, model download,
+or model weights in this repository are required. Override the local endpoint or
+model only with `OLLAMA_BASE_URL` and `OLLAMA_MODEL`; set
+`BUY_OR_WAIT_LLM_PROVIDER=none` to force the fallback.
 
-No network, credential, or live financial data is required for the current run.
+For each uncached request, Ollama receives a short prompt plus only its relevant
+untrusted messages and linked images. It must return a constrained JSON semantic
+schema. Responses are parsed, type-checked, normalized, and intersected with
+trusted profile values before use. Malformed JSON, an unavailable server, or an
+unsafe response automatically use deterministic semantic extraction instead.
+Ollama is never asked to calculate affordability or payment plans.
+
+The run writes measured local API token counters to `evaluation/usage_report.md`
+when Ollama returns them. Local inference is reported at $0.00; no token or cost
+value is guessed when unavailable.
